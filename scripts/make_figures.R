@@ -32,6 +32,18 @@ exploratory_labels_legend <- c(
   `density` = "People/sq. mi"
 )
 
+coefficient_center_scale_key <-
+  oc_census_data %>%
+  as_tibble() %>%
+  select(percent_65_or_older, percent_85_and_older,
+         percent_bachelors_degree_or_higher, percent_health_insurance,
+         percent_hispanic_or_latino, median_household_income, density) %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  summarize(center = attr(scale(value), "scaled:center"),
+            scale = attr(scale(value), "scaled:scale")) %>%
+  rename(.variable = name) %>%
+  add_row(.variable = "Intercept", center = 0, scale = 1)
 
 date_labeller <- function(x) x %>% format("%m/%y") %>% str_remove("^0")
 
@@ -194,7 +206,7 @@ plot_coefficients <- function(prepped_coefficients_for_plotting) {
                  normalize = "panels", show.legend = F) +
     scale_y_discrete("Wave", limits = rev) +
     scale_fill_viridis_d(option = "D", begin = 0.25, end = 0.75) +
-    scale_x_continuous(str_c(prepped_coefficients_for_plotting$value_type[1], " for 1 Unit Increase")) +
+    scale_x_continuous(str_c(prepped_coefficients_for_plotting$value_type[1], " for One Unit Increase")) +
     geom_vline(xintercept = 1, linetype = "dashed") +
     ggtitle(str_c("Posterior Distributions of Regression Coefficients in", if_else(prepped_coefficients_for_plotting$value_type[1] == "Odds Ratio", "Test Positivity", "Death"), "Model", sep = " ")) +
     theme_cowplot(font_size = 11, rel_large = 1)

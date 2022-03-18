@@ -1,0 +1,126 @@
+---
+title: "Predictors of Test Positivity and Mortality During Four Waves of the Coronavirus Disease Pandemic in Orange County"
+subtitle: "STAT 295 Final Project"
+author: "Damon Bayer"
+date: "Winter 2022"
+subparagraph: yes
+output:
+  bookdown::pdf_document2:
+    toc: false
+    keep_tex: false
+    df_print: kable
+    extra_dependencies:
+      titlesec: ["tiny"]
+      amsmath: []
+      db: []
+bibliography: "references.bib"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(tidybayes)
+library(cowplot)
+```
+
+# Introduction
+
+SARS-CoV-2 is a novel human coronavirus associated with high morbidity and mortality [@Wu2020CDC]. Community spread of the virus was first reported in December 2019 in Wuhan, China and spread to Orange County, CA, by January 2020 [@OCHCApress]. By March 2022, Orange County had reported nearly 550,000 cumulative cases and nearly 7,000 deaths [@OCHCAdashboard]. Early media coverage in Orange County and nationally noted that the burden of COVID-19 was not evenly distributed throughout society, with the worst impacts seen in Black and Latino communities [@lin_carcamo_jiménez_2020]. Rigorous assessment of factors related to test positivity, mortality, and seropositivity during the early stages of the pandemic in Orange County was performed in @Parker2021. The authors found that cases were clustered among high income areas of the county very early on, but quickly shifted toward areas with lower socioeconomic status.
+
+This analysis aims to expand the investigation presented in @Parker2021 while accounting for spatial correlation and to further evaluate heterogeneity in test positivity and death rate at later stages in the epidemic.
+
+# Methods
+
+## Data
+
+Case, test, and mortality data for this analysis come from line lists provided by the Orange County Health Care Agency. For the analysis, we aggregate the counts of cases, tests, and deaths by zip code and epidemic "wave." Figure \@ref(fig:weekly-data) shows the four waves -  "First," "Winter," "Delta," and "Omicron" overlaid on county-wide weekly test positivity and deaths. Zip-code-level demographic data comes from the 2019 American Community Survey as accessed through the `tidycensus` R package [@tidycensus]. This demographic data is displayed in Figure \@ref(fig:exploratory-plot). Broadly, these plots show that most demographics vary in a radial pattern based on proximity to the cities of Santa Ana and Anaheim in the north central area of the county. Zip codes in these cities tend to be less educated, less insured, more Hispanic and Latino, lower income, and higher density than communities outside of this area. The case and death data for each of the waves are presented in \@ref(fig:exploratory-plot-response). We observe a similar pattern to the demographic data, with the highest positivity and death rates occuring in the north central area of the county, especially in the First and Winter wave. In the latter two waves, the effects were more evenly distributed.
+
+*SOME COMMENTARY ABOUT WHY THERE ARE WAVES AND THE DIFFERENCES BETWEEN THEM*
+
+```{r weekly-data, fig.height=4, fig.cap='Weekly Test Positivity and Deaths in Orange County throught four epidemic waves - "First," "Winter," "Delta," and "Omicron." Death waves are offset from Test Positivity waves by two weeks.'}
+weekly_data_plot <- read_rds("figures/weekly_data_plot.rds")
+weekly_data_plot
+```
+
+```{r exploratory-plot, fig.height = 6, fig.cap='Demographic data for Orange County, CA.'}
+exploratory_plot <- read_rds("figures/exploratory_plot.rds")
+exploratory_plot
+```
+
+```{r exploratory-plot-response, fig.height = 6, fig.cap = "Test positivity rate and death rate for four pandemic waves in Orange County, CA"}
+exploratory_response_plot_test_positivity <- read_rds("figures/exploratory_response_plot_test_positivity.rds") + theme(legend.position = "bottom") + guides(fill = guide_colorbar(barwidth = 15, title.position = "top"))
+exploratory_response_plot_death_rate <- read_rds("figures/exploratory_response_plot_death_rate.rds") + theme(legend.position = "bottom") + guides(fill = guide_colorbar(barwidth = 15, title.position = "top"))
+plot_grid(exploratory_response_plot_test_positivity, exploratory_response_plot_death_rate, ncol = 2, align = "hv")
+```
+
+
+## Statistical Models
+
+We take inspiration for our models from those proposed in @Parker2021, but make several important modifications:
+
+* Rather than using individual level data when available, we aggregate all data at the zip code level to create areal data.
+* Rather than binning continuous independent variables, we treat them as continuous.
+* Rather than modeling time continuously, we discretize into the First, Winter, Delta, and Omicron waves.
+* We model spatial random effects with an improper conditional autoregressive model.
+
+The hierarchical model for testing positivity is:
+
+\begin{align*}
+\operatorname{cases}_{i, t} \mid \pi_{i,t} &\sim \operatorname{Binomial}(\pi_{i,t} \operatorname{tests}_{i,t})\\
+\log \left(  \frac{\pi_{i, t}}{1 - \pi_{i, t}} \right) &= \mathbf{X}_i^T \boldsymbol{\beta}_t + \boldsymbol{\eta}_i\\
+\eta_{i} \mid\left\{\eta_{j}, j \neq i\right\} &\sim \mathrm{N}\left(\frac{\sum_{j \neq i} w_{i j} \cdot \eta_{j}}{w_{i+}}, \frac{\tau^{2}}{w_{i+}}\right)\\
+\end{align*}
+
+The hierarchical model for deaths is:
+
+\begin{align*}
+\operatorname{deaths}_{i, t} \mid \theta_{i, t} &\sim \operatorname{Poisson}(\theta_{i, t} \times \operatorname{population}_i)\\
+\log \left(  \theta_i \right) &= \mathbf{X}_i^T \boldsymbol{\beta}_t + \boldsymbol{\eta}_i\\
+\eta_{i} \mid\left\{\eta_{j}, j \neq i\right\} &\sim \mathrm{N}\left(\frac{\sum_{j \neq i} w_{i j} \cdot \eta_{j}}{w_{i+}}, \frac{\tau^{2}}{w_{i+}}\right)\\
+\end{align*}
+
+In each model, \( i \) indexes a zipcode and \( t \) indexes a pandemic wave. The linear portion of the models consists of \( \mathbf{X}_i^T \), the vector of a constant, percent older than 65, percent older than 85, percent with a bachelor's degree, percent with health insurance, percent Hispanic or Latino, median household income, and population density for zip code \( i\), \( \boldsymbol{\beta}_t \) a vector of coefficients for these terms in wave \( t \), and \( \boldsymbol{\eta}_i \) the spatial random effect for zip code \( i \). The spatial random effects are further described by \( w_{ij} \), a binary variable indicating if zip codes \( i \) and \( j \) are neighbors, \( w_{i+} \), the total number of neighbors of zip code \( i \), and \( \tau^2 \), a variance parameter.
+
+In the software implementation, the model is fit with one design matrix  \(  \mathbf{X} \), which includes interaction effects allowing allow us to estimate each wave's coefficients separately. This matrix is centered and scaled for computational convenience. The neighbor weight matrix was constructed using the `poly2nb` function from the `spdep` package [@spdep].
+
+We conducted Bayesian inference for this model with Stan via the `brms` package using default priors: improper priors for the coefficients, a scaled Student's t distribution for for the Intercept, and a half scaled Student's t distribution for \( \tau  \) [@brms]. We collected 1000 posterior samples each from four chains after 1000 warmup samples. Convergence and mixing were assessed using potential scale reduction factors, effective posterior sample sizes, and traceplots of model parameters.
+
+# Results
+
+Inspection of our 4000 posterior samples did not indicate any issues with our model fit. All \( \hat{R} \)'s are less than 1.02. Each parameter's effective sample size was in the high hundreds or low thousands. Additionally, there was no noticeable spatial correlation in either of the models' residuals.
+
+We present the posterior distributions of the regression coefficient in Figure~@\ref(fig:coefficients-plot). 
+
+With respect to the test positivity model, we observe that the odds ratios associated with one unit increases in median household income, proportion age over 65, proportion of age over 85, and education are relatively consistent over the course of all four pandemic waves.
+In contrast, there is a noticeable shift in the odds ratios associated with population density, health insurance, and proportion of Hispanic or Latino residents, with these odds ratios being mostly greater than one in the first two waves, and less than one in the second two waves.
+
+With respect to the death rate model, we observe consistency in the rate ratios associated with one unit increases in population density, household income, education, and ethnicity.
+In this model, the rate ratios for both age variables shift over time. Larger proportions of population over age 85 were associated with higher mortality early on, but this relationship weakened after the winter wave. We observe the opposite trend for the proportions of population over age 65.
+
+Comparing the two models, we see that the factors associated with contracting the disease are not always the same as those related to death from the disease. In particular, we note that areas with large populations over 85 were not more likely to test positive, but were much more likely to die, especially in the first two pandemic waves. We also observe that areas with larger Hispanic and Latino populations were much more likely to test positive, but not any more likely to die.
+
+```{r coefficients-plot, fig.height=10, fig.width = 8}
+coefficients_pos_plot <- read_rds("figures/coefficients_pos_plot.rds")
+coefficients_death_plot <- read_rds("figures/coefficients_death_plot.rds")
+plot_grid(coefficients_pos_plot, coefficients_death_plot, ncol = 1, align = "hv")
+```
+
+
+# Discussion
+
+We have presented two models which aim to investigate factors associated with COVID-19 test positivity and deaths due to COVID-19 in four waves of the pandemic, while accounting for spatial correlation.
+
+Here, we offer some plausible explanations for the ratios which appear to change over time, based on our modeling results.
+
+The changing direction for ratios associated with population density and proportion of Hispanic or Latino residence can likely be explained by the effects of natural immunity and increased transmissibility of the later coronavirus variants. In the first two waves, high density, heavily Hispanic and Latino areas were disproportionately affected, leading these communities to develop high levels of natural immunity to the virus, making them less susceptible to the Delta and Omicron variants. It is also possible that these areas benefited from target vaccination campaigns, which were enacted because they suffered so much prior to widespread vaccine availability.
+
+The changing direction of the rate ratios associated with age structure in the deaths model can likely be explained by patterns in vaccination. The elderly benefit the most from vaccination  because they are at such great risk of death due to COVID-19. Thus, they were highly motivated to get vaccinated and prioritized in vaccine distribution. After vaccinations became widely available after the winter wave, the vaccinated elderly were no longer at increased risk of death. A more pessimistic interpretation of this change is that the first two waves succeeded in killing so many vulnerable elders that there were many fewer left at risk in the latter waves.
+Because vaccine uptake was comparatively slower and overall less prominent in the 65+ age group, their risk of death increased, relative to the baseline rate, once all the very elderly were vaccinated. 
+
+For both models, we struggle to hypothesize a likely explanation for the changing ratios associated with health insurance.
+
+While this model exercise has lead to valuable insights, there is room for improvement. The most obvious candidate for this would be a more sophisticated treatment of the temporal component of the data. Rather than modeling test positivity and deaths at four discretely binned times, it may be better to treat time as continuous. Additionally, it may be useful to allow the spatial random affects to vary over time.
+
+Code to reproduce this analysis and paper is available [here](https://github.com/damonbayer/stat_295_spatial_final).
+
+# References
